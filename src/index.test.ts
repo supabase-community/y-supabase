@@ -22,7 +22,7 @@ const createMockChannel = () => {
     unsubscribe: vi.fn(),
     // Test helpers
     _listeners: listeners,
-    _triggerSubscribze: (status: string, err?: Error) => subscribeCallback?.(status, err),
+    _triggerSubscribe: (status: string, err?: Error) => subscribeCallback?.(status, err),
     _triggerEvent: (event: string, payload: unknown) => listeners[event]?.({ payload }),
   }
 
@@ -109,7 +109,9 @@ describe('SupabaseProvider', () => {
         return { unsubscribe: vi.fn() }
       })
 
-      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never)
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        autoReconnect: false
+      })
       provider.on('error', errorHandler)
       provider.on('disconnect', disconnectHandler)
 
@@ -130,7 +132,9 @@ describe('SupabaseProvider', () => {
         return { unsubscribe: vi.fn() }
       })
 
-      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never)
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        autoReconnect: false
+      })
       provider.on('error', errorHandler)
       provider.on('disconnect', disconnectHandler)
 
@@ -150,7 +154,9 @@ describe('SupabaseProvider', () => {
         return { unsubscribe: vi.fn() }
       })
 
-      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never)
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        autoReconnect: false
+      })
       provider.on('disconnect', disconnectHandler)
       provider.on('error', errorHandler)
 
@@ -303,6 +309,48 @@ describe('SupabaseProvider', () => {
       ytext.insert(0, 'hello')
 
       expect(mockSupabase._mockChannel.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('reconnect logic', () => {
+    it('should clear existing reconnect timeout before scheduling a new one', async () => {
+      new SupabaseProvider('test-channel', doc, mockSupabase as never)
+
+      await vi.runAllTimersAsync()
+
+      mockSupabase._mockChannel._triggerSubscribe('CLOSED')
+      mockSupabase._mockChannel._triggerSubscribe('CHANNEL_ERROR', new Error('boom'))
+
+      expect(vi.getTimerCount()).toBe(1)
+    })
+
+    it('should allow reconnect scheduling after destroy when connect is called again', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never)
+
+      await vi.runAllTimersAsync()
+      provider.destroy()
+
+      provider.connect()
+      await vi.runAllTimersAsync()
+
+      mockSupabase._mockChannel._triggerSubscribe('CLOSED')
+
+      expect(vi.getTimerCount()).toBe(1)
+    })
+
+    it('should attempt to reconnect after a disconnect', async () => {
+      new SupabaseProvider('test-channel', doc, mockSupabase as never)
+
+      await vi.runAllTimersAsync()
+      mockSupabase._mockChannel.subscribe.mockClear()
+      mockSupabase.channel.mockClear()
+
+      mockSupabase._mockChannel._triggerSubscribe('CLOSED')
+
+      await vi.advanceTimersByTimeAsync(1000)
+
+      expect(mockSupabase.channel).toHaveBeenCalledTimes(1)
+      expect(mockSupabase._mockChannel.subscribe).toHaveBeenCalledTimes(1)
     })
   })
 
