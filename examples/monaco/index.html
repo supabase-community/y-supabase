@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>y-supabase Monaco Example</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #1e1e1e;
+      color: #fff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 12px 16px;
+      background: #252526;
+      border-bottom: 1px solid #3c3c3c;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    #status {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: #3c3c3c;
+    }
+    #status.connected { background: #2ea043; }
+    #status.connecting { background: #d29922; }
+    #status.disconnected { background: #da3633; }
+    #editor {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>y-supabase + Monaco</h1>
+    <span id="status">connecting</span>
+  </header>
+  <div id="editor"></div>
+
+  <script type="module" src="./monaco.ts"></script>
+</body>
+</html>
