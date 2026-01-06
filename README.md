@@ -54,7 +54,31 @@ const yText = doc.getText('content')
 type SupabaseProviderOptions = {
   // Throttle broadcast updates (ms)
   broadcastThrottleMs?: number
+
+  // Enable automatic reconnection on disconnect (default: true)
+  autoReconnect?: boolean
+
+  // Maximum reconnection attempts (default: Infinity)
+  maxReconnectAttempts?: number
+
+  // Initial reconnection delay in ms (default: 1000)
+  reconnectDelay?: number
+
+  // Maximum reconnection delay in ms (default: 30000)
+  // Uses exponential backoff: 1s, 2s, 4s, 8s
+  maxReconnectDelay?: number
 }
+```
+
+**Example with custom reconnection:**
+
+```typescript
+const provider = new SupabaseProvider('my-room', doc, supabase, {
+  autoReconnect: true,
+  maxReconnectAttempts: 5,
+  reconnectDelay: 2000,
+  maxReconnectDelay: 60000
+})
 ```
 
 ## Events

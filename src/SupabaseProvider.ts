@@ -4,6 +4,14 @@ import * as Y from 'yjs'
 
 type SupabaseProviderOptions = {
   broadcastThrottleMs?: number
+  /** Enable automatic reconnection on disconnect. Default: true */
+  autoReconnect?: boolean
+  /** Maximum reconnection attempts. Default: Infinity */
+  maxReconnectAttempts?: number
+  /** Initial reconnection delay in ms. Default: 1000 */
+  reconnectDelay?: number
+  /** Maximum reconnection delay in ms. Default: 30000 */
+  maxReconnectDelay?: number
 }
 
 type Status = 'connecting' | 'connected' | 'disconnected'
@@ -79,6 +87,9 @@ class SupabaseProvider {
   private options: SupabaseProviderOptions | undefined
   private syncedPeers = new Set<string>()
   private listeners = new Map<keyof ProviderEventMap, Set<ProviderEventMap[keyof ProviderEventMap]>>()
+  private reconnectAttempts = 0
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+  private shouldReconnect = true
 
   constructor(channelName: string, doc: Y.Doc, supabase: SupabaseClient, options?: SupabaseProviderOptions) {
     this.channelName = channelName
@@ -230,7 +241,8 @@ class SupabaseProvider {
    * Connects to the Supabase Realtime channel and starts syncing.
    * Called automatically in the constructor. Can be called again to reconnect.
    */
-  async connect() {
+  connect() {
+    this.shouldReconnect = true
     this.doc.off('update', this.handleDocUpdate)
     this.doc.on('update', this.handleDocUpdate)
     this.syncedPeers.clear()
@@ -248,6 +260,7 @@ class SupabaseProvider {
         if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
           this.setStatus('connected')
           this.emit('connect', this)
+          this.reconnectAttempts = 0 // Reset reconnect attempts on successful connection
 
           // Send our state vector to request sync from existing peers
           this.sendStateVector()
@@ -255,15 +268,49 @@ class SupabaseProvider {
           this.setStatus('disconnected')
           this.emit('error', err ?? new Error('Channel error'))
           this.emit('disconnect', this)
+          this.scheduleReconnect()
         } else if (status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
           this.setStatus('disconnected')
           this.emit('error', new Error('Connection timed out'))
           this.emit('disconnect', this)
+          this.scheduleReconnect()
         } else if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) {
           this.setStatus('disconnected')
           this.emit('disconnect', this)
+          this.scheduleReconnect()
         }
       })
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff.
+   */
+  private scheduleReconnect() {
+    const autoReconnect = this.options?.autoReconnect ?? true
+    const maxAttempts = this.options?.maxReconnectAttempts ?? Infinity
+
+    if (!autoReconnect || !this.shouldReconnect || this.reconnectAttempts >= maxAttempts) {
+      return
+    }
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
+
+    const baseDelay = this.options?.reconnectDelay ?? 1000
+    const maxDelay = this.options?.maxReconnectDelay ?? 30000
+
+    // Exponential backoff: 1s, 2s, 4s, 8s
+    const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts), maxDelay)
+
+    this.reconnectAttempts++
+
+    this.reconnectTimeout = setTimeout(() => {
+      if (this.shouldReconnect) {
+        this.connect()
+      }
+    }, delay)
   }
 
   /**
@@ -271,9 +318,16 @@ class SupabaseProvider {
    * Call this when the provider is no longer needed to prevent memory leaks.
    */
   destroy() {
+    this.shouldReconnect = false
+
     if (this.broadcastTimeout) {
       clearTimeout(this.broadcastTimeout)
       this.broadcastTimeout = null
+    }
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
     }
 
     this.doc.off('update', this.handleDocUpdate)
