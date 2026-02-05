@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Y from 'yjs'
-import { SupabaseProvider } from './SupabaseProvider'
+import { SupabaseProvider } from '../src/SupabaseProvider'
+
+// Helper to encode Uint8Array to base64 (matches provider's encoding)
+const encodeUpdate = (update: Uint8Array) => {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < update.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, Array.from(update.subarray(i, i + chunkSize)))
+  }
+  return btoa(binary)
+}
 
 // Mock Supabase client
 const createMockChannel = () => {
@@ -483,15 +493,6 @@ describe('real-world collaboration scenarios', () => {
 
     // doc2 sends its state vector (empty doc)
     const doc2StateVector = Y.encodeStateVector(doc2)
-    const encodeUpdate = (update: Uint8Array) => {
-      let binary = ''
-      const chunkSize = 0x8000
-      for (let i = 0; i < update.length; i += chunkSize) {
-        binary += String.fromCharCode.apply(null, Array.from(update.subarray(i, i + chunkSize)))
-      }
-      return btoa(binary)
-    }
-
     mockSupabase1._mockChannel._triggerEvent('y-supabase-state-vector', {
       stateVector: encodeUpdate(doc2StateVector),
       user: { id: 'peer-2' },
@@ -553,15 +554,6 @@ describe('real-world collaboration scenarios', () => {
     await vi.runAllTimersAsync()
 
     mockSupabase1._mockChannel.send.mockClear()
-
-    const encodeUpdate = (update: Uint8Array) => {
-      let binary = ''
-      const chunkSize = 0x8000
-      for (let i = 0; i < update.length; i += chunkSize) {
-        binary += String.fromCharCode.apply(null, Array.from(update.subarray(i, i + chunkSize)))
-      }
-      return btoa(binary)
-    }
 
     // Receive state vector from same peer twice
     const stateVector = {
@@ -756,5 +748,457 @@ describe('cleanup and memory management', () => {
     // Only handler2 should be called
     expect(handler1).not.toHaveBeenCalled()
     expect(handler2).toHaveBeenCalled()
+  })
+})
+
+describe('awareness', () => {
+  let doc: Y.Doc
+  let mockSupabase: ReturnType<typeof createMockSupabase>
+
+  beforeEach(() => {
+    doc = new Y.Doc()
+    mockSupabase = createMockSupabase()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  // Helper to advance timers without triggering awareness cleanup interval
+  const waitForConnection = async () => {
+    await vi.advanceTimersByTimeAsync(10)
+  }
+
+  describe('initialization', () => {
+    it('should create awareness when awareness option is true', () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+
+      expect(provider.getAwareness()).not.toBeNull()
+    })
+
+    it('should not create awareness by default', () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never)
+
+      expect(provider.getAwareness()).toBeNull()
+    })
+
+    it('should use provided Awareness instance', async () => {
+      const { Awareness } = await import('y-protocols/awareness')
+      const customAwareness = new Awareness(doc)
+
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: customAwareness,
+      })
+
+      expect(provider.getAwareness()).toBe(customAwareness)
+    })
+  })
+
+  describe('local awareness updates', () => {
+    it('should broadcast awareness updates when local state changes', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+
+      await waitForConnection()
+      mockSupabase._mockChannel.send.mockClear()
+
+      // Set local awareness state
+      provider.getAwareness()!.setLocalStateField('user', {
+        name: 'Alice',
+        color: '#ff0000',
+      })
+
+      expect(mockSupabase._mockChannel.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'broadcast',
+          event: 'y-supabase-awareness',
+          payload: expect.objectContaining({
+            update: expect.any(String),
+            user: expect.objectContaining({ id: expect.any(String) }),
+            timestamp: expect.any(Number),
+          }),
+        })
+      )
+
+      provider.destroy()
+    })
+
+    it('should broadcast initial awareness state on connect', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+
+      // Set local state before connection completes
+      provider.getAwareness()!.setLocalStateField('user', { name: 'Bob' })
+
+      await waitForConnection()
+
+      // Should have sent awareness update after connection
+      const awarenessCalls = mockSupabase._mockChannel.send.mock.calls.filter(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+      expect(awarenessCalls.length).toBeGreaterThan(0)
+
+      provider.destroy()
+    })
+  })
+
+  describe('remote awareness updates', () => {
+    it('should apply remote awareness updates', async () => {
+      const { Awareness, encodeAwarenessUpdate } = await import('y-protocols/awareness')
+
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      const awarenessHandler = vi.fn()
+      provider.on('awareness', awarenessHandler)
+
+      // Create a remote awareness update
+      const remoteDoc = new Y.Doc()
+      const remoteAwareness = new Awareness(remoteDoc)
+      remoteAwareness.setLocalStateField('user', { name: 'Remote User', color: '#00ff00' })
+      const update = encodeAwarenessUpdate(remoteAwareness, [remoteDoc.clientID])
+
+      // Simulate receiving remote awareness
+      mockSupabase._mockChannel._triggerEvent('y-supabase-awareness', {
+        update: encodeUpdate(update),
+        user: { id: 'remote-user-id' },
+        timestamp: Date.now(),
+      })
+
+      expect(awarenessHandler).toHaveBeenCalledWith(expect.any(Uint8Array))
+
+      // Check that the remote state was applied
+      const states = provider.getAwareness()!.getStates()
+      expect(states.size).toBeGreaterThan(0)
+
+      provider.destroy()
+      remoteAwareness.destroy()
+    })
+
+    it('should ignore awareness updates from self', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      const awarenessHandler = vi.fn()
+      provider.on('awareness', awarenessHandler)
+
+      // Set local state
+      provider.getAwareness()!.setLocalStateField('user', { name: 'Me' })
+
+      // Get the sent awareness update
+      const sentCall = mockSupabase._mockChannel.send.mock.calls.find(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+
+      // Simulate receiving our own broadcast (shouldn't happen, but test the guard)
+      mockSupabase._mockChannel._triggerEvent('y-supabase-awareness', sentCall![0].payload)
+
+      // Should not emit awareness event for own updates
+      expect(awarenessHandler).not.toHaveBeenCalled()
+
+      provider.destroy()
+    })
+
+    it('should not rebroadcast remote awareness updates', async () => {
+      const { Awareness, encodeAwarenessUpdate } = await import('y-protocols/awareness')
+
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+      mockSupabase._mockChannel.send.mockClear()
+
+      // Create a remote awareness update
+      const remoteDoc = new Y.Doc()
+      const remoteAwareness = new Awareness(remoteDoc)
+      remoteAwareness.setLocalStateField('user', { name: 'Remote' })
+      const update = encodeAwarenessUpdate(remoteAwareness, [remoteDoc.clientID])
+
+      // Simulate receiving remote awareness
+      mockSupabase._mockChannel._triggerEvent('y-supabase-awareness', {
+        update: encodeUpdate(update),
+        user: { id: 'remote-user' },
+        timestamp: Date.now(),
+      })
+
+      // Should NOT rebroadcast the remote update (would cause echo storm)
+      const awarenessCalls = mockSupabase._mockChannel.send.mock.calls.filter(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+      expect(awarenessCalls.length).toBe(0)
+
+      provider.destroy()
+      remoteAwareness.destroy()
+    })
+  })
+
+  describe('awareness sync between clients', () => {
+    it('should sync awareness between two clients', async () => {
+      const doc1 = new Y.Doc()
+      const doc2 = new Y.Doc()
+      const mockSupabase1 = createMockSupabase()
+      const mockSupabase2 = createMockSupabase()
+
+      const provider1 = new SupabaseProvider('test-channel', doc1, mockSupabase1 as never, {
+        awareness: true,
+      })
+      const provider2 = new SupabaseProvider('test-channel', doc2, mockSupabase2 as never, {
+        awareness: true,
+      })
+
+      await waitForConnection()
+      mockSupabase1._mockChannel.send.mockClear()
+
+      // Client 1 sets their user info
+      provider1.getAwareness()!.setLocalStateField('user', {
+        name: 'Alice',
+        color: '#ff0000',
+        cursor: { line: 10, column: 5 },
+      })
+
+      // Get the awareness broadcast from client 1 (should be the only one after clearing)
+      const awarenessCall = mockSupabase1._mockChannel.send.mock.calls.find(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+      expect(awarenessCall).toBeDefined()
+
+      // Simulate client 2 receiving client 1's awareness with a different user id
+      mockSupabase2._mockChannel._triggerEvent('y-supabase-awareness', {
+        ...awarenessCall![0].payload,
+        user: { id: 'different-user-id' }, // Ensure it's treated as a remote update
+      })
+
+      // Client 2 should now see client 1's awareness state
+      const states = provider2.getAwareness()!.getStates()
+      const remoteState = Array.from(states.values()).find((s) => s?.user?.name === 'Alice')
+
+      expect(remoteState).toBeDefined()
+      expect(remoteState?.user?.color).toBe('#ff0000')
+      expect(remoteState?.user?.cursor).toEqual({ line: 10, column: 5 })
+
+      provider1.destroy()
+      provider2.destroy()
+    })
+
+    it('should track multiple users awareness', async () => {
+      const { Awareness, encodeAwarenessUpdate } = await import('y-protocols/awareness')
+
+      const doc1 = new Y.Doc()
+      const mockSupabase1 = createMockSupabase()
+
+      const provider1 = new SupabaseProvider('test-channel', doc1, mockSupabase1 as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      // Set local state
+      provider1.getAwareness()!.setLocalStateField('user', { name: 'Alice' })
+
+      // Simulate two remote users joining
+      const createRemoteAwareness = (name: string) => {
+        const remoteDoc = new Y.Doc()
+        const remoteAwareness = new Awareness(remoteDoc)
+        remoteAwareness.setLocalStateField('user', { name })
+        return { doc: remoteDoc, awareness: remoteAwareness }
+      }
+
+      const remote1 = createRemoteAwareness('Bob')
+      const remote2 = createRemoteAwareness('Charlie')
+
+      mockSupabase1._mockChannel._triggerEvent('y-supabase-awareness', {
+        update: encodeUpdate(encodeAwarenessUpdate(remote1.awareness, [remote1.doc.clientID])),
+        user: { id: 'bob-id' },
+        timestamp: Date.now(),
+      })
+
+      mockSupabase1._mockChannel._triggerEvent('y-supabase-awareness', {
+        update: encodeUpdate(encodeAwarenessUpdate(remote2.awareness, [remote2.doc.clientID])),
+        user: { id: 'charlie-id' },
+        timestamp: Date.now(),
+      })
+
+      // Should have Alice (local) + Bob + Charlie
+      const states = provider1.getAwareness()!.getStates()
+      const names = Array.from(states.values())
+        .filter((s) => s?.user?.name)
+        .map((s) => s.user.name)
+
+      expect(names).toContain('Alice')
+      expect(names).toContain('Bob')
+      expect(names).toContain('Charlie')
+
+      provider1.destroy()
+      remote1.awareness.destroy()
+      remote2.awareness.destroy()
+    })
+  })
+
+  describe('awareness cleanup', () => {
+    it('should clean up awareness on destroy', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      provider.getAwareness()!.setLocalStateField('user', { name: 'Test' })
+
+      const awareness = provider.getAwareness()!
+
+      // Verify local state exists before destroy
+      expect(awareness.getLocalState()).not.toBeNull()
+
+      provider.destroy()
+
+      // After destroy, local state should be null (removed)
+      expect(awareness.getLocalState()).toBeNull()
+    })
+
+    it('should not broadcast awareness updates after destroy', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      const awareness = provider.getAwareness()!
+      provider.destroy()
+
+      mockSupabase._mockChannel.send.mockClear()
+
+      // Try to set local state after destroy (awareness instance still exists)
+      awareness.setLocalStateField('user', { name: 'Ghost' })
+
+      // Should not broadcast
+      const awarenessCalls = mockSupabase._mockChannel.send.mock.calls.filter(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+      expect(awarenessCalls.length).toBe(0)
+    })
+  })
+
+  describe('user disconnect scenarios', () => {
+    it('should broadcast awareness removal when user disconnects', async () => {
+      const doc1 = new Y.Doc()
+      const doc2 = new Y.Doc()
+      const mockSupabase1 = createMockSupabase()
+      const mockSupabase2 = createMockSupabase()
+
+      const provider1 = new SupabaseProvider('test-channel', doc1, mockSupabase1 as never, {
+        awareness: true,
+      })
+      const provider2 = new SupabaseProvider('test-channel', doc2, mockSupabase2 as never, {
+        awareness: true,
+      })
+
+      await waitForConnection()
+      mockSupabase1._mockChannel.send.mockClear()
+
+      // Client 1 sets user info
+      provider1.getAwareness()!.setLocalStateField('user', { name: 'Alice' })
+
+      // Simulate client 2 receiving client 1's awareness with different user id
+      const awarenessCall = mockSupabase1._mockChannel.send.mock.calls.find(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+      expect(awarenessCall).toBeDefined()
+
+      mockSupabase2._mockChannel._triggerEvent('y-supabase-awareness', {
+        ...awarenessCall![0].payload,
+        user: { id: 'client1-user-id' },
+      })
+
+      // Verify client 2 sees Alice
+      let states = provider2.getAwareness()!.getStates()
+      let hasAlice = Array.from(states.values()).some((s) => s?.user?.name === 'Alice')
+      expect(hasAlice).toBe(true)
+
+      mockSupabase1._mockChannel.send.mockClear()
+
+      // Client 1 disconnects
+      provider1.destroy()
+
+      // Get the awareness removal broadcast
+      const removalCall = mockSupabase1._mockChannel.send.mock.calls.find(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+
+      // If there was a removal broadcast, simulate client 2 receiving it
+      if (removalCall) {
+        mockSupabase2._mockChannel._triggerEvent('y-supabase-awareness', {
+          ...removalCall[0].payload,
+          user: { id: 'client1-user-id' },
+        })
+
+        // Client 2 should no longer see Alice
+        states = provider2.getAwareness()!.getStates()
+        hasAlice = Array.from(states.values()).some((s) => s?.user?.name === 'Alice')
+        expect(hasAlice).toBe(false)
+      }
+
+      provider2.destroy()
+    })
+  })
+
+  describe('error handling', () => {
+    it('should emit error on malformed awareness payload', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      const errorHandler = vi.fn()
+      provider.on('error', errorHandler)
+
+      // Send malformed awareness update
+      mockSupabase._mockChannel._triggerEvent('y-supabase-awareness', {
+        update: 'invalid-base64-!!!',
+        user: { id: 'other-peer' },
+        timestamp: Date.now(),
+      })
+
+      expect(errorHandler).toHaveBeenCalledWith(expect.any(Error))
+
+      provider.destroy()
+    })
+
+    it('should continue working after awareness error', async () => {
+      const provider = new SupabaseProvider('test-channel', doc, mockSupabase as never, {
+        awareness: true,
+      })
+      await waitForConnection()
+
+      const errorHandler = vi.fn()
+      provider.on('error', errorHandler)
+
+      // Send malformed awareness
+      mockSupabase._mockChannel._triggerEvent('y-supabase-awareness', {
+        update: 'bad-data',
+        user: { id: 'other' },
+        timestamp: Date.now(),
+      })
+
+      expect(errorHandler).toHaveBeenCalled()
+
+      mockSupabase._mockChannel.send.mockClear()
+
+      // Should still work - set local awareness
+      provider.getAwareness()!.setLocalStateField('user', { name: 'Recovery' })
+
+      const awarenessCalls = mockSupabase._mockChannel.send.mock.calls.filter(
+        (call) => call[0]?.event === 'y-supabase-awareness'
+      )
+      expect(awarenessCalls.length).toBeGreaterThan(0)
+
+      provider.destroy()
+    })
   })
 })

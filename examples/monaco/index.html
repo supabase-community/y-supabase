@@ -42,6 +42,17 @@
     #editor {
       flex: 1;
     }
+    /* Remote cursor/selection styles - y-monaco sets colors via inline styles */
+    .yRemoteSelection {
+      background-color: rgba(250, 129, 0, 0.5);
+    }
+    .yRemoteSelectionHead {
+      position: absolute;
+      border-left: 2px solid orange;
+      border-color: inherit;
+      height: 100%;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>

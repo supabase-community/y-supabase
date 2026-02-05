@@ -1,70 +1,51 @@
 {
-  "name": "@tiagoantunespt/y-supabase",
+  "name": "@supabase-community/y-supabase",
+  "type": "module",
   "version": "0.1.0",
   "description": "Supabase Realtime provider for Yjs",
-  "main": "dist/index.cjs",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.cts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.cts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
-    }
+  "author": "Tiago Antunes <tiagoantunespt@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/supabase-community/y-supabase#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/supabase-community/y-supabase.git"
   },
+  "bugs": {
+    "url": "https://github.com/supabase-community/y-supabase/issues"
+  },
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.mts",
   "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
+    "dist"
   ],
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "lint": "eslint src --ext .ts",
+    "test": "vitest",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "pnpm run build",
     "example:monaco": "npx vite examples/monaco"
   },
-  "keywords": [
-    "yjs",
-    "supabase",
-    "realtime",
-    "collaboration"
-  ],
-  "author": "Tiago Antunes <tiagoantunespt@gmail.com>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/tiagoantunespt/y-supabase.git"
-  },
-  "bugs": {
-    "url": "https://github.com/tiagoantunespt/y-supabase/issues"
-  },
-  "homepage": "https://github.com/tiagoantunespt/y-supabase#readme",
-  "peerDependencies": {
-    "@supabase/supabase-js": "^2.89.0",
-    "yjs": "^13.0.0"
-  },
   "dependencies": {
-    "@supabase/ssr": "^0.8.0",
-    "y-protocols": "^1.0.7"
+    "y-protocols": "^1.0.7",
+    "@supabase/supabase-js": "^2.94.1",
+    "yjs": "^13.6.29"
   },
   "devDependencies": {
-    "@supabase/supabase-js": "^2.89.0",
-    "@types/node": "^25.0.3",
-    "@typescript-eslint/eslint-plugin": "^8.51.0",
-    "@typescript-eslint/parser": "^8.51.0",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@types/node": "^25.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9.39.2",
     "monaco-editor": "^0.55.1",
-    "tsdown": "^0.19.0-beta.2",
+    "tsdown": "^0.20.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.0",
-    "vitest": "^4.0.16",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18",
     "y-monaco": "^0.1.6",
-    "yjs": "^13.6.29"
+    "bumpp": "^10.3.2"
   }
 }

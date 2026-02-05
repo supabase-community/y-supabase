@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
 import * as monaco from 'monaco-editor'
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { SupabaseProvider } from '../../src'
 
 // Replace these with your actual Supabase project credentials
@@ -9,12 +9,13 @@ const supabaseUrl = 'supbase_url'
 const supabaseKey = 'supabase_key'
 
 // Initialize Supabase client
-const supabase = createBrowserClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Create Yjs document and provider
+// Create Yjs document and provider with awareness enabled
 const ydoc = new Y.Doc()
-const provider = new SupabaseProvider('monaco-demo', ydoc, supabase)
-
+const provider = new SupabaseProvider('monaco-demo', ydoc, supabase, {
+  awareness: true
+})
 const ytext = ydoc.getText('monaco')
 
 // Create Monaco editor
@@ -24,12 +25,12 @@ const editor = monaco.editor.create(document.getElementById('editor')!, {
   theme: 'vs-dark',
 })
 
-// Bind Yjs to Monaco
+// Bind Yjs to Monaco with awareness for cursors and selections
 new MonacoBinding(
   ytext,
   editor.getModel()!,
   new Set([editor]),
-  undefined
+  provider.getAwareness()
 )
 
 // Update status indicator

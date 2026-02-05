@@ -1,6 +1,12 @@
 import { RealtimeChannel, REALTIME_SUBSCRIBE_STATES } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as Y from 'yjs'
+import {
+  Awareness,
+  applyAwarenessUpdate,
+  encodeAwarenessUpdate,
+  removeAwarenessStates,
+} from 'y-protocols/awareness'
 
 type SupabaseProviderOptions = {
   broadcastThrottleMs?: number
@@ -12,6 +18,8 @@ type SupabaseProviderOptions = {
   reconnectDelay?: number
   /** Maximum reconnection delay in ms. Default: 30000 */
   maxReconnectDelay?: number
+  /** Enable awareness for presence features. Pass true to create new instance, or pass existing Awareness */
+  awareness?: boolean | Awareness
 }
 
 type Status = 'connecting' | 'connected' | 'disconnected'
@@ -26,6 +34,7 @@ type RealtimeYPayload = {
 
 const UPDATE_EVENT = 'y-supabase-update'
 const STATE_VECTOR_EVENT = 'y-supabase-state-vector'
+const AWARENESS_EVENT = 'y-supabase-awareness'
 
 type StateVectorPayload = {
   stateVector: string
@@ -53,6 +62,7 @@ const decodeUpdate = (encoded: string) => {
 
 type ProviderEventMap = {
   message: (update: Uint8Array) => void
+  awareness: (update: Uint8Array) => void
   status: (status: Status) => void
   connect: (provider: SupabaseProvider) => void
   disconnect: (provider: SupabaseProvider) => void
@@ -87,9 +97,11 @@ class SupabaseProvider {
   private options: SupabaseProviderOptions | undefined
   private syncedPeers = new Set<string>()
   private listeners = new Map<keyof ProviderEventMap, Set<ProviderEventMap[keyof ProviderEventMap]>>()
+  private awareness: Awareness | null = null
   private reconnectAttempts = 0
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = true
+  private boundBeforeUnload: (() => void) | null = null
 
   constructor(channelName: string, doc: Y.Doc, supabase: SupabaseClient, options?: SupabaseProviderOptions) {
     this.channelName = channelName
@@ -98,7 +110,19 @@ class SupabaseProvider {
     this.options = options
     this.userId = crypto.randomUUID()
 
+    if (options?.awareness) {
+      this.awareness = options.awareness instanceof Awareness ? options.awareness : new Awareness(doc)
+      this.handleAwarenessUpdate = this.handleAwarenessUpdate.bind(this)
+      this.awareness.on('update', this.handleAwarenessUpdate)
+    }
+
     this.handleDocUpdate = this.handleDocUpdate.bind(this)
+
+    if (typeof window !== 'undefined') {
+      this.boundBeforeUnload = () => this.destroy()
+      window.addEventListener('beforeunload', this.boundBeforeUnload)
+    }
+
     this.connect()
   }
 
@@ -188,6 +212,46 @@ class SupabaseProvider {
     }
   }
 
+  private broadcastAwarenessUpdate(update: Uint8Array) {
+    if (!this.channel) return
+
+    const payload: RealtimeYPayload = {
+      update: encodeUpdate(update),
+      user: { id: this.userId },
+      timestamp: Date.now(),
+    }
+
+    this.channel.send({
+      type: 'broadcast',
+      event: AWARENESS_EVENT,
+      payload,
+    })
+  }
+
+  private handleAwarenessUpdate(
+    { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
+    origin: 'remote' | Awareness | null
+  ) {
+    if (!this.awareness) return
+    if (origin === 'remote') return
+
+    const update = encodeAwarenessUpdate(this.awareness, [...added, ...updated, ...removed])
+    this.broadcastAwarenessUpdate(update)
+  }
+
+  private handleRemoteAwareness(payload: RealtimeYPayload) {
+    if (!this.awareness) return
+    if (payload.user.id === this.userId) return
+
+    try {
+      const update = decodeUpdate(payload.update)
+      applyAwarenessUpdate(this.awareness, update, 'remote')
+      this.emit('awareness', update)
+    } catch (err) {
+      this.emit('error', err instanceof Error ? err : new Error('Failed to apply awareness update'))
+    }
+  }
+
   /**
    * Sends our state vector to request missing updates from peers.
    */
@@ -256,11 +320,23 @@ class SupabaseProvider {
       .on('broadcast', { event: UPDATE_EVENT }, (data: { payload: RealtimeYPayload }) => {
         this.handleRemoteUpdate(data.payload)
       })
+      .on('broadcast', { event: AWARENESS_EVENT }, (data: { payload: RealtimeYPayload }) => {
+        this.handleRemoteAwareness(data.payload)
+      })
       .subscribe((status, err) => {
         if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
           this.setStatus('connected')
           this.emit('connect', this)
           this.reconnectAttempts = 0 // Reset reconnect attempts on successful connection
+
+          // Broadcast initial awareness state to existing peers
+          if (this.awareness) {
+            const update = encodeAwarenessUpdate(
+              this.awareness,
+              Array.from(this.awareness.getStates().keys())
+            )
+            this.broadcastAwarenessUpdate(update)
+          }
 
           // Send our state vector to request sync from existing peers
           this.sendStateVector()
@@ -330,7 +406,18 @@ class SupabaseProvider {
       this.reconnectTimeout = null
     }
 
+    if (this.boundBeforeUnload && typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', this.boundBeforeUnload)
+      this.boundBeforeUnload = null
+    }
+
     this.doc.off('update', this.handleDocUpdate)
+
+    if (this.awareness) {
+      removeAwarenessStates(this.awareness, [this.doc.clientID], 'local')
+      this.awareness.off('update', this.handleAwarenessUpdate)
+    }
+
     if (this.channel) {
       this.supabase.removeChannel(this.channel)
       this.channel = null
@@ -343,6 +430,14 @@ class SupabaseProvider {
    */
   getStatus() {
     return this.status
+  }
+
+  /**
+   * Returns the Awareness instance if awareness was enabled.
+   * @returns The Awareness instance or null if awareness is disabled
+   */
+  getAwareness() {
+    return this.awareness
   }
 }
 
