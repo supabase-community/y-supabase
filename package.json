@@ -30,11 +30,11 @@
     "example:monaco": "npx vite examples/monaco"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.8.0",
-    "y-protocols": "^1.0.7"
+    "y-protocols": "^1.0.7",
+    "@supabase/supabase-js": "^2.94.1",
+    "yjs": "^13.6.29"
   },
   "devDependencies": {
-    "@supabase/supabase-js": "^2.93.3",
     "@types/node": "^25.1.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
@@ -46,7 +46,6 @@
     "vite": "^7.3.1",
     "vitest": "^4.0.18",
     "y-monaco": "^0.1.6",
-    "yjs": "^13.6.29",
     "bumpp": "^10.3.2"
   }
 }

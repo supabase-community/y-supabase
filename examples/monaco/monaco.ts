@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
 import * as monaco from 'monaco-editor'
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { SupabaseProvider } from '../../src'
 
 // Replace these with your actual Supabase project credentials
@@ -9,7 +9,7 @@ const supabaseUrl = 'supbase_url'
 const supabaseKey = 'supabase_key'
 
 // Initialize Supabase client
-const supabase = createBrowserClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Create Yjs document and provider with awareness enabled
 const ydoc = new Y.Doc()
