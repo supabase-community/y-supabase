@@ -7,6 +7,7 @@ import {
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from 'y-protocols/awareness'
+import { EventEmitter, encodeUpdate, decodeUpdate } from './utils'
 
 type SupabaseProviderOptions = {
   broadcastThrottleMs?: number
@@ -42,24 +43,6 @@ type StateVectorPayload = {
   timestamp: number
 }
 
-const encodeUpdate = (update: Uint8Array) => {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < update.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, Array.from(update.subarray(i, i + chunkSize)))
-  }
-  return btoa(binary)
-}
-
-const decodeUpdate = (encoded: string) => {
-  const binary = atob(encoded)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes
-}
-
 type ProviderEventMap = {
   message: (update: Uint8Array) => void
   awareness: (update: Uint8Array) => void
@@ -85,7 +68,7 @@ type ProviderEventMap = {
  * provider.on('message', (update) => console.log('Received update'))
  * ```
  */
-class SupabaseProvider {
+class SupabaseProvider extends EventEmitter<ProviderEventMap> {
   private channelName: string
   private doc: Y.Doc
   private supabase: SupabaseClient
@@ -96,7 +79,6 @@ class SupabaseProvider {
   private pendingUpdates: Uint8Array[] = []
   private options: SupabaseProviderOptions | undefined
   private syncedPeers = new Set<string>()
-  private listeners = new Map<keyof ProviderEventMap, Set<ProviderEventMap[keyof ProviderEventMap]>>()
   private awareness: Awareness | null = null
   private reconnectAttempts = 0
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
@@ -104,6 +86,7 @@ class SupabaseProvider {
   private boundBeforeUnload: (() => void) | null = null
 
   constructor(channelName: string, doc: Y.Doc, supabase: SupabaseClient, options?: SupabaseProviderOptions) {
+    super()
     this.channelName = channelName
     this.doc = doc
     this.supabase = supabase
@@ -124,28 +107,6 @@ class SupabaseProvider {
     }
 
     this.connect()
-  }
-
-  on<K extends keyof ProviderEventMap>(event: K, listener: ProviderEventMap[K]) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set())
-    }
-    this.listeners.get(event)!.add(listener)
-    return this
-  }
-
-  off<K extends keyof ProviderEventMap>(event: K, listener: ProviderEventMap[K]) {
-    this.listeners.get(event)?.delete(listener)
-    return this
-  }
-
-  private emit<K extends keyof ProviderEventMap>(event: K, ...args: Parameters<ProviderEventMap[K]>) {
-    const eventListeners = this.listeners.get(event)
-    if (eventListeners) {
-      eventListeners.forEach((listener) => {
-        ;(listener as (...args: Parameters<ProviderEventMap[K]>) => void)(...args)
-      })
-    }
   }
 
   private setStatus(next: Status) {

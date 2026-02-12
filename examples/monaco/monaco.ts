@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
 import * as monaco from 'monaco-editor'
 import { createClient } from "@supabase/supabase-js";
-import { SupabaseProvider } from '../../src'
+import { SupabaseProvider, SupabasePersistence } from '../../src'
 
 // Replace these with your actual Supabase project credentials
 const supabaseUrl = 'supbase_url'
@@ -12,9 +12,14 @@ const supabaseKey = 'supabase_key'
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Create Yjs document and provider with awareness enabled
+const docName = 'monaco-demo'
 const ydoc = new Y.Doc()
-const provider = new SupabaseProvider('monaco-demo', ydoc, supabase, {
+const provider = new SupabaseProvider(docName, ydoc, supabase, {
   awareness: true
+})
+const persistenceProvider = new SupabasePersistence(docName, ydoc, supabase)
+persistenceProvider.on('synced', () => {
+  console.log('Persistence: initial state loaded from Supabase')
 })
 const ytext = ydoc.getText('monaco')
 
