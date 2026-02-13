@@ -8,6 +8,8 @@ import {
   removeAwarenessStates,
 } from 'y-protocols/awareness'
 import { EventEmitter, encodeUpdate, decodeUpdate } from './utils'
+import { SupabasePersistence } from './SupabasePersistence'
+import type { SupabasePersistenceOptions } from './SupabasePersistence'
 
 type SupabaseProviderOptions = {
   broadcastThrottleMs?: number
@@ -21,6 +23,8 @@ type SupabaseProviderOptions = {
   maxReconnectDelay?: number
   /** Enable awareness for presence features. Pass true to create new instance, or pass existing Awareness */
   awareness?: boolean | Awareness
+  /** Enable persistence. Pass true for defaults, or pass options to customize. */
+  persistence?: boolean | SupabasePersistenceOptions
 }
 
 type Status = 'connecting' | 'connected' | 'disconnected'
@@ -80,6 +84,7 @@ class SupabaseProvider extends EventEmitter<ProviderEventMap> {
   private options: SupabaseProviderOptions | undefined
   private syncedPeers = new Set<string>()
   private awareness: Awareness | null = null
+  private persistence: SupabasePersistence | null = null
   private reconnectAttempts = 0
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = true
@@ -97,6 +102,11 @@ class SupabaseProvider extends EventEmitter<ProviderEventMap> {
       this.awareness = options.awareness instanceof Awareness ? options.awareness : new Awareness(doc)
       this.handleAwarenessUpdate = this.handleAwarenessUpdate.bind(this)
       this.awareness.on('update', this.handleAwarenessUpdate)
+    }
+
+    if (options?.persistence) {
+      const persistenceOptions = typeof options.persistence === 'object' ? options.persistence : undefined
+      this.persistence = new SupabasePersistence(channelName, doc, supabase, persistenceOptions)
     }
 
     this.handleDocUpdate = this.handleDocUpdate.bind(this)
@@ -379,6 +389,11 @@ class SupabaseProvider extends EventEmitter<ProviderEventMap> {
       this.awareness.off('update', this.handleAwarenessUpdate)
     }
 
+    if (this.persistence) {
+      this.persistence.destroy()
+      this.persistence = null
+    }
+
     if (this.channel) {
       this.supabase.removeChannel(this.channel)
       this.channel = null
@@ -399,6 +414,14 @@ class SupabaseProvider extends EventEmitter<ProviderEventMap> {
    */
   getAwareness() {
     return this.awareness
+  }
+
+  /**
+   * Returns the SupabasePersistence instance if persistence was enabled.
+   * @returns The SupabasePersistence instance or null if persistence is disabled
+   */
+  getPersistence() {
+    return this.persistence
   }
 }
 

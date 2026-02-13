@@ -86,15 +86,28 @@ persistence.on('error', (error) => {
 
 ### Using with SupabaseProvider
 
-For real-time collaboration with persistence, use both together:
+For real-time collaboration with persistence, pass `persistence` as a provider option:
 
 ```typescript
-const doc = new Y.Doc()
-const provider = new SupabaseProvider('my-room', doc, supabase)
-const persistence = new SupabasePersistence('my-room', doc, supabase)
+const provider = new SupabaseProvider('my-room', doc, supabase, {
+  persistence: true
+})
+
+// Access persistence events via getPersistence()
+provider.getPersistence()?.on('synced', () => {
+  console.log('Document state loaded')
+})
 ```
 
-The provider handles live sync between connected clients, while persistence ensures the document state survives across sessions.
+You can also pass persistence options directly:
+
+```typescript
+const provider = new SupabaseProvider('my-room', doc, supabase, {
+  persistence: { table: 'custom_docs', storeTimeout: 2000 }
+})
+```
+
+The provider handles live sync between connected clients, while persistence ensures the document state survives across sessions. The persistence instance is automatically destroyed when the provider is destroyed.
 
 ### Persistence Options
 
@@ -167,6 +180,9 @@ type SupabaseProviderOptions = {
   // Enable awareness for user presence (cursors, selections, etc.)
   // Pass `true` to create a new Awareness instance, or pass an existing one
   awareness?: boolean | Awareness
+
+  // Enable persistence. Pass `true` for defaults, or pass SupabasePersistenceOptions
+  persistence?: boolean | SupabasePersistenceOptions
 }
 ```
 
@@ -209,6 +225,7 @@ Creates a new provider instance.
 - `destroy()` - Disconnect and clean up resources
 - `getStatus()` - Get current connection status
 - `getAwareness()` - Get the Awareness instance (or `null` if not enabled)
+- `getPersistence()` - Get the SupabasePersistence instance (or `null` if not enabled)
 - `on(event, listener)` - Subscribe to events
 - `off(event, listener)` - Unsubscribe from events
 
@@ -269,15 +286,15 @@ import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
 import * as monaco from 'monaco-editor'
 import { createClient } from '@supabase/supabase-js'
-import { SupabaseProvider, SupabasePersistence } from '@supabase-community/y-supabase'
+import { SupabaseProvider } from '@supabase-community/y-supabase'
 
 const supabase = createClient('https://...', 'your-key')
 const doc = new Y.Doc()
 const provider = new SupabaseProvider('my-room', doc, supabase, {
-  awareness: true
+  awareness: true,
+  persistence: true
 })
-const persistence = new SupabasePersistence('my-room', doc, supabase)
-persistence.on('synced', () => console.log('Document state loaded'))
+provider.getPersistence()?.on('synced', () => console.log('Document state loaded'))
 
 // Set user info for cursor display
 const awareness = provider.getAwareness()!
