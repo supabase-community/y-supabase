@@ -1,10 +1,11 @@
 # y-supabase
 
-A [Yjs](https://yjs.dev/) provider that enables real-time collaboration through [Supabase Realtime](https://supabase.com/docs/guides/realtime).
+A [Yjs](https://yjs.dev/) provider that enables real-time collaboration and persistence through [Supabase](https://supabase.com/).
 
 ## Features
 
 - **Real-time sync** - Sync document changes across clients using Supabase Realtime broadcast
+- **Persistence** - Persist document state to a Supabase Postgres table and restore on load
 - **Awareness** - Track user presence, cursors, and selections with `y-protocols/awareness`
 - **Lightweight** - Minimal dependencies, works with any Yjs-compatible editor
 - **TypeScript** - Full TypeScript support with type definitions
@@ -47,7 +48,114 @@ provider.on('error', (error) => {
 const yText = doc.getText('content')
 ```
 
-## Configuration
+## Persistence
+
+`SupabasePersistence` saves the full Yjs document state to a Supabase Postgres table and restores it when the document is opened. This works independently of `SupabaseProvider` — you can use either or both.
+
+### Database Setup
+
+Create a table to store document state:
+
+```sql
+create table yjs_documents (
+  room text primary key,
+  state text not null
+);
+```
+
+### Usage
+
+```typescript
+import * as Y from 'yjs'
+import { createClient } from '@supabase/supabase-js'
+import { SupabasePersistence } from '@supabase-community/y-supabase'
+
+const doc = new Y.Doc()
+const supabase = createClient('https://your-project.supabase.co', 'your-anon-key')
+
+const persistence = new SupabasePersistence('my-room', doc, supabase)
+
+persistence.on('synced', () => {
+  console.log('Document state loaded from Supabase')
+})
+
+persistence.on('error', (error) => {
+  console.error('Persistence error:', error)
+})
+```
+
+### Using with SupabaseProvider
+
+For real-time collaboration with persistence, pass `persistence` as a provider option:
+
+```typescript
+const provider = new SupabaseProvider('my-room', doc, supabase, {
+  persistence: true
+})
+
+// Access persistence events via getPersistence()
+provider.getPersistence()?.on('synced', () => {
+  console.log('Document state loaded')
+})
+```
+
+You can also pass persistence options directly:
+
+```typescript
+const provider = new SupabaseProvider('my-room', doc, supabase, {
+  persistence: { table: 'custom_docs', storeTimeout: 2000 }
+})
+```
+
+The provider handles live sync between connected clients, while persistence ensures the document state survives across sessions. The persistence instance is automatically destroyed when the provider is destroyed.
+
+### Persistence Options
+
+```typescript
+type SupabasePersistenceOptions = {
+  // Table name to store document state (default: 'yjs_documents')
+  table?: string
+
+  // Schema name (default: 'public')
+  schema?: string
+
+  // Column name for the room/document identifier (default: 'room')
+  roomColumn?: string
+
+  // Column name for the binary state (default: 'state')
+  stateColumn?: string
+
+  // Debounce timeout in ms before persisting updates (default: 1000)
+  storeTimeout?: number
+}
+```
+
+### Persistence Events
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `synced` | `persistence` | Initial state loaded from database |
+| `error` | `Error` | An error occurred (fetch, persist, or flush failure) |
+
+### Persistence API
+
+#### `new SupabasePersistence(name, doc, supabase, options?)`
+
+Creates a new persistence instance. Immediately fetches existing state from the database and applies it to the document.
+
+- `name` - Room/document identifier (used as the primary key)
+- `doc` - Yjs document instance
+- `supabase` - Supabase client instance
+- `options` - Optional configuration (see above)
+
+#### Methods
+
+- `destroy()` - Stop listening and flush any pending writes
+- `clearData()` - Destroy and delete the persisted state from the database
+- `on(event, listener)` - Subscribe to events
+- `off(event, listener)` - Unsubscribe from events
+
+## Provider Configuration
 
 ### Options
 
@@ -72,6 +180,9 @@ type SupabaseProviderOptions = {
   // Enable awareness for user presence (cursors, selections, etc.)
   // Pass `true` to create a new Awareness instance, or pass an existing one
   awareness?: boolean | Awareness
+
+  // Enable persistence. Pass `true` for defaults, or pass SupabasePersistenceOptions
+  persistence?: boolean | SupabasePersistenceOptions
 }
 ```
 
@@ -86,7 +197,7 @@ const provider = new SupabaseProvider('my-room', doc, supabase, {
 })
 ```
 
-## Events
+## Provider Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
@@ -97,7 +208,7 @@ const provider = new SupabaseProvider('my-room', doc, supabase, {
 | `awareness` | `Uint8Array` | Received awareness update from peer |
 | `error` | `Error` | An error occurred (e.g., failed to decode update) |
 
-## API
+## Provider API
 
 ### `new SupabaseProvider(channelName, doc, supabase, options?)`
 
@@ -114,6 +225,7 @@ Creates a new provider instance.
 - `destroy()` - Disconnect and clean up resources
 - `getStatus()` - Get current connection status
 - `getAwareness()` - Get the Awareness instance (or `null` if not enabled)
+- `getPersistence()` - Get the SupabasePersistence instance (or `null` if not enabled)
 - `on(event, listener)` - Subscribe to events
 - `off(event, listener)` - Unsubscribe from events
 
@@ -179,8 +291,10 @@ import { SupabaseProvider } from '@supabase-community/y-supabase'
 const supabase = createClient('https://...', 'your-key')
 const doc = new Y.Doc()
 const provider = new SupabaseProvider('my-room', doc, supabase, {
-  awareness: true
+  awareness: true,
+  persistence: true
 })
+provider.getPersistence()?.on('synced', () => console.log('Document state loaded'))
 
 // Set user info for cursor display
 const awareness = provider.getAwareness()!

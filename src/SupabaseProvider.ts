@@ -7,6 +7,9 @@ import {
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from 'y-protocols/awareness'
+import { EventEmitter, encodeUpdate, decodeUpdate } from './utils'
+import { SupabasePersistence } from './SupabasePersistence'
+import type { SupabasePersistenceOptions } from './SupabasePersistence'
 
 type SupabaseProviderOptions = {
   broadcastThrottleMs?: number
@@ -20,6 +23,8 @@ type SupabaseProviderOptions = {
   maxReconnectDelay?: number
   /** Enable awareness for presence features. Pass true to create new instance, or pass existing Awareness */
   awareness?: boolean | Awareness
+  /** Enable persistence. Pass true for defaults, or pass options to customize. */
+  persistence?: boolean | SupabasePersistenceOptions
 }
 
 type Status = 'connecting' | 'connected' | 'disconnected'
@@ -40,24 +45,6 @@ type StateVectorPayload = {
   stateVector: string
   user: { id: string }
   timestamp: number
-}
-
-const encodeUpdate = (update: Uint8Array) => {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < update.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, Array.from(update.subarray(i, i + chunkSize)))
-  }
-  return btoa(binary)
-}
-
-const decodeUpdate = (encoded: string) => {
-  const binary = atob(encoded)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes
 }
 
 type ProviderEventMap = {
@@ -85,7 +72,7 @@ type ProviderEventMap = {
  * provider.on('message', (update) => console.log('Received update'))
  * ```
  */
-class SupabaseProvider {
+class SupabaseProvider extends EventEmitter<ProviderEventMap> {
   private channelName: string
   private doc: Y.Doc
   private supabase: SupabaseClient
@@ -96,14 +83,15 @@ class SupabaseProvider {
   private pendingUpdates: Uint8Array[] = []
   private options: SupabaseProviderOptions | undefined
   private syncedPeers = new Set<string>()
-  private listeners = new Map<keyof ProviderEventMap, Set<ProviderEventMap[keyof ProviderEventMap]>>()
   private awareness: Awareness | null = null
+  private persistence: SupabasePersistence | null = null
   private reconnectAttempts = 0
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = true
   private boundBeforeUnload: (() => void) | null = null
 
   constructor(channelName: string, doc: Y.Doc, supabase: SupabaseClient, options?: SupabaseProviderOptions) {
+    super()
     this.channelName = channelName
     this.doc = doc
     this.supabase = supabase
@@ -116,6 +104,11 @@ class SupabaseProvider {
       this.awareness.on('update', this.handleAwarenessUpdate)
     }
 
+    if (options?.persistence) {
+      const persistenceOptions = typeof options.persistence === 'object' ? options.persistence : undefined
+      this.persistence = new SupabasePersistence(channelName, doc, supabase, persistenceOptions)
+    }
+
     this.handleDocUpdate = this.handleDocUpdate.bind(this)
 
     if (typeof window !== 'undefined') {
@@ -124,28 +117,6 @@ class SupabaseProvider {
     }
 
     this.connect()
-  }
-
-  on<K extends keyof ProviderEventMap>(event: K, listener: ProviderEventMap[K]) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set())
-    }
-    this.listeners.get(event)!.add(listener)
-    return this
-  }
-
-  off<K extends keyof ProviderEventMap>(event: K, listener: ProviderEventMap[K]) {
-    this.listeners.get(event)?.delete(listener)
-    return this
-  }
-
-  private emit<K extends keyof ProviderEventMap>(event: K, ...args: Parameters<ProviderEventMap[K]>) {
-    const eventListeners = this.listeners.get(event)
-    if (eventListeners) {
-      eventListeners.forEach((listener) => {
-        ;(listener as (...args: Parameters<ProviderEventMap[K]>) => void)(...args)
-      })
-    }
   }
 
   private setStatus(next: Status) {
@@ -418,6 +389,11 @@ class SupabaseProvider {
       this.awareness.off('update', this.handleAwarenessUpdate)
     }
 
+    if (this.persistence) {
+      this.persistence.destroy()
+      this.persistence = null
+    }
+
     if (this.channel) {
       this.supabase.removeChannel(this.channel)
       this.channel = null
@@ -438,6 +414,14 @@ class SupabaseProvider {
    */
   getAwareness() {
     return this.awareness
+  }
+
+  /**
+   * Returns the SupabasePersistence instance if persistence was enabled.
+   * @returns The SupabasePersistence instance or null if persistence is disabled
+   */
+  getPersistence() {
+    return this.persistence
   }
 }
 
