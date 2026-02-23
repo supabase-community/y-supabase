@@ -11,10 +11,15 @@ const supabaseKey = 'supabase_key'
 // Initialize Supabase client
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Create Yjs document and provider with awareness enabled
+// Create Yjs document and provider with awareness and persistence enabled
+const docName = 'monaco-demo'
 const ydoc = new Y.Doc()
-const provider = new SupabaseProvider('monaco-demo', ydoc, supabase, {
-  awareness: true
+const provider = new SupabaseProvider(docName, ydoc, supabase, {
+  awareness: true,
+  persistence: true
+})
+provider.getPersistence()?.on('synced', () => {
+  console.log('Persistence: initial state loaded from Supabase')
 })
 const ytext = ydoc.getText('monaco')
 

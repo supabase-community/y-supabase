@@ -1,16 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Y from 'yjs'
+import { encodeUpdate } from '../src/utils'
 import { SupabaseProvider } from '../src/SupabaseProvider'
-
-// Helper to encode Uint8Array to base64 (matches provider's encoding)
-const encodeUpdate = (update: Uint8Array) => {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let i = 0; i < update.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, Array.from(update.subarray(i, i + chunkSize)))
-  }
-  return btoa(binary)
-}
 
 // Mock Supabase client
 const createMockChannel = () => {
