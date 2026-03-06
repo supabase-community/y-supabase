@@ -31,21 +31,21 @@
   },
   "dependencies": {
     "y-protocols": "^1.0.7",
-    "@supabase/supabase-js": "^2.94.1",
+    "@supabase/supabase-js": "^2.98.0",
     "yjs": "^13.6.29"
   },
   "devDependencies": {
-    "@types/node": "^25.1.0",
-    "@typescript-eslint/eslint-plugin": "^8.54.0",
-    "@typescript-eslint/parser": "^8.54.0",
+    "@types/node": "^25.3.5",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
     "@vitest/coverage-v8": "^4.0.18",
-    "eslint": "^9.39.2",
+    "eslint": "^10.0.2",
     "monaco-editor": "^0.55.1",
-    "tsdown": "^0.20.1",
+    "tsdown": "^0.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18",
     "y-monaco": "^0.1.6",
-    "bumpp": "^10.3.2"
+    "bumpp": "^10.4.1"
   }
 }
