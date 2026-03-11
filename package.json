@@ -1,7 +1,7 @@
 {
   "name": "@supabase-labs/y-supabase",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Supabase Realtime provider for Yjs",
   "author": "Tiago Antunes <tiagoantunespt@gmail.com>",
   "license": "MIT",
