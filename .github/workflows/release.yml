@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write # required for npm trusted publishing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+
+      # Only continue if a release was created
+      - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      - uses: pnpm/action-setup@v4
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v5
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      # Install latest npm globally in a user-writable prefix (no sudo, no perms issues)
+      - name: Install latest npm (user prefix)
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          mkdir -p "$HOME/.npm-global"
+          npm config set prefix "$HOME/.npm-global"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install dependencies
+        if: ${{ steps.release.outputs.release_created }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        if: ${{ steps.release.outputs.release_created }}
+        run: pnpm build
+
+      # Use npm for publish (trusted publishing via OIDC)
+      - name: Publish to npm (trusted publishing)
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm publish --access public --provenance
