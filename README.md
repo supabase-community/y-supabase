@@ -13,7 +13,7 @@ A [Yjs](https://yjs.dev/) provider that enables real-time collaboration and pers
 ## Installation
 
 ```bash
-npm install @supabase-community/y-supabase yjs @supabase/supabase-js
+npm install @supabase-labs/y-supabase yjs @supabase/supabase-js
 ```
 
 ## Quick Start
@@ -21,7 +21,7 @@ npm install @supabase-community/y-supabase yjs @supabase/supabase-js
 ```typescript
 import * as Y from 'yjs'
 import { createClient } from '@supabase/supabase-js'
-import { SupabaseProvider } from '@supabase-community/y-supabase'
+import { SupabaseProvider } from '@supabase-labs/y-supabase'
 
 // Create a Yjs document
 const doc = new Y.Doc()
@@ -68,7 +68,7 @@ create table yjs_documents (
 ```typescript
 import * as Y from 'yjs'
 import { createClient } from '@supabase/supabase-js'
-import { SupabasePersistence } from '@supabase-community/y-supabase'
+import { SupabasePersistence } from '@supabase-labs/y-supabase'
 
 const doc = new Y.Doc()
 const supabase = createClient('https://your-project.supabase.co', 'your-anon-key')
@@ -286,7 +286,7 @@ import * as Y from 'yjs'
 import { MonacoBinding } from 'y-monaco'
 import * as monaco from 'monaco-editor'
 import { createClient } from '@supabase/supabase-js'
-import { SupabaseProvider } from '@supabase-community/y-supabase'
+import { SupabaseProvider } from '@supabase-labs/y-supabase'
 
 const supabase = createClient('https://...', 'your-key')
 const doc = new Y.Doc()

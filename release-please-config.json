@@ -1,0 +1,11 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "@supabase-labs/y-supabase",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false
+    }
+  }
+}
